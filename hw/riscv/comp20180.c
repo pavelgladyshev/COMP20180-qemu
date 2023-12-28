@@ -41,6 +41,7 @@
 #include "hw/intc/riscv_imsic.h"
 #include "hw/intc/sifive_plic.h"
 #include "hw/misc/sifive_test.h"
+#include "hw/misc/practice.h"
 #include "hw/platform-bus.h"
 #include "chardev/char.h"
 #include "sysemu/device_tree.h"
@@ -77,16 +78,17 @@
 #endif
 
 /* KVM AIA only supports APLIC MSI. APLIC Wired is always emulated by QEMU. */
-static bool virt_use_kvm_aia(RISCVCOMP20180State *s)
+static bool comp20180_use_kvm_aia(RISCVCOMP20180State *s)
 {
     return kvm_irqchip_in_kernel() && s->aia_type == COMP20180_AIA_TYPE_APLIC_IMSIC;
 }
 
-static const MemMapEntry virt_memmap[] = {
+static const MemMapEntry comp20180_memmap[] = {
     [COMP20180_DEBUG] =        {        0x0,         0x100 },
     [COMP20180_MROM] =         {     0x1000,        0xf000 },
     [COMP20180_TEST] =         {   0x100000,        0x1000 },
     [COMP20180_RTC] =          {   0x101000,        0x1000 },
+    [COMP20180_PRACTICE] =     {   0x200000,          0x10 },
     [COMP20180_CLINT] =        {  0x2000000,       0x10000 },
     [COMP20180_ACLINT_SSWI] =  {  0x2F00000,        0x4000 },
     [COMP20180_PCIE_PIO] =     {  0x3000000,       0x10000 },
@@ -112,11 +114,11 @@ static const MemMapEntry virt_memmap[] = {
 /* PCIe high mmio for RV64, size is fixed but base depends on top of RAM */
 #define COMP2018064_HIGH_PCIE_MMIO_SIZE  (16 * GiB)
 
-static MemMapEntry virt_high_pcie_memmap;
+static MemMapEntry comp20180_high_pcie_memmap;
 
 #define COMP20180_FLASH_SECTOR_SIZE (256 * KiB)
 
-static PFlashCFI01 *virt_flash_create1(RISCVCOMP20180State *s,
+static PFlashCFI01 *comp20180_flash_create1(RISCVCOMP20180State *s,
                                        const char *name,
                                        const char *alias_prop_name)
 {
@@ -143,13 +145,13 @@ static PFlashCFI01 *virt_flash_create1(RISCVCOMP20180State *s,
     return PFLASH_CFI01(dev);
 }
 
-static void virt_flash_create(RISCVCOMP20180State *s)
+static void comp20180_flash_create(RISCVCOMP20180State *s)
 {
-    s->flash[0] = virt_flash_create1(s, "virt.flash0", "pflash0");
-    s->flash[1] = virt_flash_create1(s, "virt.flash1", "pflash1");
+    s->flash[0] = comp20180_flash_create1(s, "virt.flash0", "pflash0");
+    s->flash[1] = comp20180_flash_create1(s, "virt.flash1", "pflash1");
 }
 
-static void virt_flash_map1(PFlashCFI01 *flash,
+static void comp20180_flash_map1(PFlashCFI01 *flash,
                             hwaddr base, hwaddr size,
                             MemoryRegion *sysmem)
 {
@@ -165,15 +167,15 @@ static void virt_flash_map1(PFlashCFI01 *flash,
                                                        0));
 }
 
-static void virt_flash_map(RISCVCOMP20180State *s,
+static void comp20180_flash_map(RISCVCOMP20180State *s,
                            MemoryRegion *sysmem)
 {
-    hwaddr flashsize = virt_memmap[COMP20180_FLASH].size / 2;
-    hwaddr flashbase = virt_memmap[COMP20180_FLASH].base;
+    hwaddr flashsize = comp20180_memmap[COMP20180_FLASH].size / 2;
+    hwaddr flashbase = comp20180_memmap[COMP20180_FLASH].base;
 
-    virt_flash_map1(s->flash[0], flashbase, flashsize,
+    comp20180_flash_map1(s->flash[0], flashbase, flashsize,
                     sysmem);
-    virt_flash_map1(s->flash[1], flashbase + flashsize, flashsize,
+    comp20180_flash_map1(s->flash[1], flashbase + flashsize, flashsize,
                     sysmem);
 }
 
@@ -782,7 +784,7 @@ static void create_fdt_sockets(RISCVCOMP20180State *s, const MemMapEntry *memmap
     }
 
     /* KVM AIA only has one APLIC instance */
-    if (kvm_enabled() && virt_use_kvm_aia(s)) {
+    if (kvm_enabled() && comp20180_use_kvm_aia(s)) {
         create_fdt_socket_aplic(s, memmap, 0,
                                 msi_m_phandle, msi_s_phandle, phandle,
                                 &intc_phandles[0], xplic_phandles,
@@ -808,7 +810,7 @@ static void create_fdt_sockets(RISCVCOMP20180State *s, const MemMapEntry *memmap
 
     g_free(intc_phandles);
 
-    if (kvm_enabled() && virt_use_kvm_aia(s)) {
+    if (kvm_enabled() && comp20180_use_kvm_aia(s)) {
         *irq_mmio_phandle = xplic_phandles[0];
         *irq_virtio_phandle = xplic_phandles[0];
         *irq_pcie_phandle = xplic_phandles[0];
@@ -894,8 +896,8 @@ static void create_fdt_pcie(RISCVCOMP20180State *s, const MemMapEntry *memmap,
         2, memmap[COMP20180_PCIE_MMIO].base,
         2, memmap[COMP20180_PCIE_MMIO].base, 2, memmap[COMP20180_PCIE_MMIO].size,
         1, FDT_PCI_RANGE_MMIO_64BIT,
-        2, virt_high_pcie_memmap.base,
-        2, virt_high_pcie_memmap.base, 2, virt_high_pcie_memmap.size);
+        2, comp20180_high_pcie_memmap.base,
+        2, comp20180_high_pcie_memmap.base, 2, comp20180_high_pcie_memmap.size);
 
     create_pcie_irq_map(s, ms->fdt, name, irq_pcie_phandle);
     g_free(name);
@@ -992,8 +994,8 @@ static void create_fdt_flash(RISCVCOMP20180State *s, const MemMapEntry *memmap)
 {
     char *name;
     MachineState *ms = MACHINE(s);
-    hwaddr flashsize = virt_memmap[COMP20180_FLASH].size / 2;
-    hwaddr flashbase = virt_memmap[COMP20180_FLASH].base;
+    hwaddr flashsize = comp20180_memmap[COMP20180_FLASH].size / 2;
+    hwaddr flashbase = comp20180_memmap[COMP20180_FLASH].base;
 
     name = g_strdup_printf("/flash@%" PRIx64, flashbase);
     qemu_fdt_add_subnode(ms->fdt, name);
@@ -1027,19 +1029,19 @@ static void finalize_fdt(RISCVCOMP20180State *s)
     uint32_t phandle = 1, irq_mmio_phandle = 1, msi_pcie_phandle = 1;
     uint32_t irq_pcie_phandle = 1, irq_virtio_phandle = 1;
 
-    create_fdt_sockets(s, virt_memmap, &phandle, &irq_mmio_phandle,
+    create_fdt_sockets(s, comp20180_memmap, &phandle, &irq_mmio_phandle,
                        &irq_pcie_phandle, &irq_virtio_phandle,
                        &msi_pcie_phandle);
 
-    create_fdt_virtio(s, virt_memmap, irq_virtio_phandle);
+    create_fdt_virtio(s, comp20180_memmap, irq_virtio_phandle);
 
-    create_fdt_pcie(s, virt_memmap, irq_pcie_phandle, msi_pcie_phandle);
+    create_fdt_pcie(s, comp20180_memmap, irq_pcie_phandle, msi_pcie_phandle);
 
-    create_fdt_reset(s, virt_memmap, &phandle);
+    create_fdt_reset(s, comp20180_memmap, &phandle);
 
-    create_fdt_uart(s, virt_memmap, irq_mmio_phandle);
+    create_fdt_uart(s, comp20180_memmap, irq_mmio_phandle);
 
-    create_fdt_rtc(s, virt_memmap, irq_mmio_phandle);
+    create_fdt_rtc(s, comp20180_memmap, irq_mmio_phandle);
 }
 
 static void create_fdt(RISCVCOMP20180State *s, const MemMapEntry *memmap)
@@ -1127,7 +1129,7 @@ static inline DeviceState *gpex_pcie_init(MemoryRegion *sys_mem,
 
 static FWCfgState *create_fw_cfg(const MachineState *ms)
 {
-    hwaddr base = virt_memmap[COMP20180_FW_CFG].base;
+    hwaddr base = comp20180_memmap[COMP20180_FW_CFG].base;
     FWCfgState *fw_cfg;
 
     fw_cfg = fw_cfg_init_mem_wide(base + 8, base, 8, base + 16,
@@ -1137,7 +1139,7 @@ static FWCfgState *create_fw_cfg(const MachineState *ms)
     return fw_cfg;
 }
 
-static DeviceState *virt_create_plic(const MemMapEntry *memmap, int socket,
+static DeviceState *comp20180_create_plic(const MemMapEntry *memmap, int socket,
                                      int base_hartid, int hart_count)
 {
     DeviceState *ret;
@@ -1227,7 +1229,7 @@ static void create_platform_bus(RISCVCOMP20180State *s, DeviceState *irqchip)
 {
     DeviceState *dev;
     SysBusDevice *sysbus;
-    const MemMapEntry *memmap = virt_memmap;
+    const MemMapEntry *memmap = comp20180_memmap;
     int i;
     MemoryRegion *sysmem = get_system_memory();
 
@@ -1249,11 +1251,11 @@ static void create_platform_bus(RISCVCOMP20180State *s, DeviceState *irqchip)
                                 sysbus_mmio_get_region(sysbus, 0));
 }
 
-static void virt_machine_done(Notifier *notifier, void *data)
+static void comp20180_machine_done(Notifier *notifier, void *data)
 {
     RISCVCOMP20180State *s = container_of(notifier, RISCVCOMP20180State,
                                      machine_done);
-    const MemMapEntry *memmap = virt_memmap;
+    const MemMapEntry *memmap = comp20180_memmap;
     MachineState *machine = MACHINE(s);
     target_ulong start_addr = memmap[COMP20180_DRAM].base;
     target_ulong firmware_end_addr, kernel_start_addr;
@@ -1298,14 +1300,14 @@ static void virt_machine_done(Notifier *notifier, void *data)
              * let's overwrite the address we jump to after reset to
              * the base of the flash.
              */
-            start_addr = virt_memmap[COMP20180_FLASH].base;
+            start_addr = comp20180_memmap[COMP20180_FLASH].base;
         } else {
             /*
              * Pflash was supplied but either KVM guest or bios is not none.
              * In this case, base of the flash would contain S-mode payload.
              */
             riscv_setup_firmware_boot(machine);
-            kernel_entry = virt_memmap[COMP20180_FLASH].base;
+            kernel_entry = comp20180_memmap[COMP20180_FLASH].base;
         }
     }
 
@@ -1324,8 +1326,8 @@ static void virt_machine_done(Notifier *notifier, void *data)
 
     /* load the reset vector */
     riscv_setup_rom_reset_vec(machine, &s->soc[0], start_addr,
-                              virt_memmap[COMP20180_MROM].base,
-                              virt_memmap[COMP20180_MROM].size, kernel_entry,
+                              comp20180_memmap[COMP20180_MROM].base,
+                              comp20180_memmap[COMP20180_MROM].size, kernel_entry,
                               fdt_load_addr);
 
     /*
@@ -1338,14 +1340,14 @@ static void virt_machine_done(Notifier *notifier, void *data)
     }
 
     // we do not use it
-    //if (virt_is_acpi_enabled(s)) {
-    //    virt_acpi_setup(s);
+    //if (comp20180_is_acpi_enabled(s)) {
+    //    comp20180_acpi_setup(s);
     //}
 }
 
-static void virt_machine_init(MachineState *machine)
+static void comp20180_machine_init(MachineState *machine)
 {
-    const MemMapEntry *memmap = virt_memmap;
+    const MemMapEntry *memmap = comp20180_memmap;
     RISCVCOMP20180State *s = RISCV_COMP20180_MACHINE(machine);
     MemoryRegion *system_memory = get_system_memory();
     MemoryRegion *mask_rom = g_new(MemoryRegion, 1);
@@ -1441,7 +1443,7 @@ static void virt_machine_init(MachineState *machine)
 
         /* Per-socket interrupt controller */
         if (s->aia_type == COMP20180_AIA_TYPE_NONE) {
-            s->irqchip[i] = virt_create_plic(memmap, i,
+            s->irqchip[i] = comp20180_create_plic(memmap, i,
                                              base_hartid, hart_count);
         } else {
             s->irqchip[i] = comp20180_create_aia(s->aia_type, s->aia_guests,
@@ -1464,7 +1466,7 @@ static void virt_machine_init(MachineState *machine)
         }
     }
 
-    if (kvm_enabled() && virt_use_kvm_aia(s)) {
+    if (kvm_enabled() && comp20180_use_kvm_aia(s)) {
         kvm_riscv_aia_create(machine, IMSIC_MMIO_GROUP_MIN_SHIFT,
                              COMP20180_IRQCHIP_NUM_SOURCES, COMP20180_IRQCHIP_NUM_MSIS,
                              memmap[COMP20180_APLIC_S].base,
@@ -1480,23 +1482,23 @@ static void virt_machine_init(MachineState *machine)
             error_report("Limiting RAM size to 10 GiB");
         }
 #endif
-        virt_high_pcie_memmap.base = COMP2018032_HIGH_PCIE_MMIO_BASE;
-        virt_high_pcie_memmap.size = COMP2018032_HIGH_PCIE_MMIO_SIZE;
+        comp20180_high_pcie_memmap.base = COMP2018032_HIGH_PCIE_MMIO_BASE;
+        comp20180_high_pcie_memmap.size = COMP2018032_HIGH_PCIE_MMIO_SIZE;
     } else {
-        virt_high_pcie_memmap.size = COMP2018064_HIGH_PCIE_MMIO_SIZE;
-        virt_high_pcie_memmap.base = memmap[COMP20180_DRAM].base + machine->ram_size;
-        virt_high_pcie_memmap.base =
-            ROUND_UP(virt_high_pcie_memmap.base, virt_high_pcie_memmap.size);
+        comp20180_high_pcie_memmap.size = COMP2018064_HIGH_PCIE_MMIO_SIZE;
+        comp20180_high_pcie_memmap.base = memmap[COMP20180_DRAM].base + machine->ram_size;
+        comp20180_high_pcie_memmap.base =
+            ROUND_UP(comp20180_high_pcie_memmap.base, comp20180_high_pcie_memmap.size);
     }
 
-    s->memmap = virt_memmap;
+    s->memmap = comp20180_memmap;
 
     /* register system main memory (actual RAM) */
     memory_region_add_subregion(system_memory, memmap[COMP20180_DRAM].base,
         machine->ram);
 
     /* boot rom */
-    memory_region_init_rom(mask_rom, NULL, "riscv_virt_board.mrom",
+    memory_region_init_rom(mask_rom, NULL, "riscv_comp20180_board.mrom",
                            memmap[COMP20180_MROM].size, &error_fatal);
     memory_region_add_subregion(system_memory, memmap[COMP20180_MROM].base,
                                 mask_rom);
@@ -1523,8 +1525,8 @@ static void virt_machine_init(MachineState *machine)
                    memmap[COMP20180_PCIE_ECAM].size,
                    memmap[COMP20180_PCIE_MMIO].base,
                    memmap[COMP20180_PCIE_MMIO].size,
-                   virt_high_pcie_memmap.base,
-                   virt_high_pcie_memmap.size,
+                   comp20180_high_pcie_memmap.base,
+                   comp20180_high_pcie_memmap.size,
                    memmap[COMP20180_PCIE_PIO].base,
                    pcie_irqchip);
 
@@ -1537,12 +1539,14 @@ static void virt_machine_init(MachineState *machine)
     sysbus_create_simple("goldfish_rtc", memmap[COMP20180_RTC].base,
         qdev_get_gpio_in(mmio_irqchip, RTC_IRQ));
 
+    create_practice_device("practice-device", memmap[COMP20180_PRACTICE].base, memmap[COMP20180_PRACTICE].size);
+
     for (i = 0; i < ARRAY_SIZE(s->flash); i++) {
         /* Map legacy -drive if=pflash to machine properties */
         pflash_cfi01_legacy_drive(s->flash[i],
                                   drive_get(IF_PFLASH, 0, i));
     }
-    virt_flash_map(s, system_memory);
+    comp20180_flash_map(s, system_memory);
 
     /* load/create device tree */
     if (machine->dtb) {
@@ -1555,22 +1559,22 @@ static void virt_machine_init(MachineState *machine)
         create_fdt(s, memmap);
     }
 
-    s->machine_done.notify = virt_machine_done;
+    s->machine_done.notify = comp20180_machine_done;
     qemu_add_machine_init_done_notifier(&s->machine_done);
 }
 
-static void virt_machine_instance_init(Object *obj)
+static void comp20180_machine_instance_init(Object *obj)
 {
     RISCVCOMP20180State *s = RISCV_COMP20180_MACHINE(obj);
 
-    virt_flash_create(s);
+    comp20180_flash_create(s);
 
     s->oem_id = g_strndup(ACPI_BUILD_APPNAME6, 6);
     s->oem_table_id = g_strndup(ACPI_BUILD_APPNAME8, 8);
     s->acpi = ON_OFF_AUTO_AUTO;
 }
 
-static char *virt_get_aia_guests(Object *obj, Error **errp)
+static char *comp20180_get_aia_guests(Object *obj, Error **errp)
 {
     RISCVCOMP20180State *s = RISCV_COMP20180_MACHINE(obj);
     char val[32];
@@ -1579,7 +1583,7 @@ static char *virt_get_aia_guests(Object *obj, Error **errp)
     return g_strdup(val);
 }
 
-static void virt_set_aia_guests(Object *obj, const char *val, Error **errp)
+static void comp20180_set_aia_guests(Object *obj, const char *val, Error **errp)
 {
     RISCVCOMP20180State *s = RISCV_COMP20180_MACHINE(obj);
 
@@ -1591,7 +1595,7 @@ static void virt_set_aia_guests(Object *obj, const char *val, Error **errp)
     }
 }
 
-static char *virt_get_aia(Object *obj, Error **errp)
+static char *comp20180_get_aia(Object *obj, Error **errp)
 {
     RISCVCOMP20180State *s = RISCV_COMP20180_MACHINE(obj);
     const char *val;
@@ -1611,7 +1615,7 @@ static char *virt_get_aia(Object *obj, Error **errp)
     return g_strdup(val);
 }
 
-static void virt_set_aia(Object *obj, const char *val, Error **errp)
+static void comp20180_set_aia(Object *obj, const char *val, Error **errp)
 {
     RISCVCOMP20180State *s = RISCV_COMP20180_MACHINE(obj);
 
@@ -1628,26 +1632,26 @@ static void virt_set_aia(Object *obj, const char *val, Error **errp)
     }
 }
 
-static bool virt_get_aclint(Object *obj, Error **errp)
+static bool comp20180_get_aclint(Object *obj, Error **errp)
 {
     RISCVCOMP20180State *s = RISCV_COMP20180_MACHINE(obj);
 
     return s->have_aclint;
 }
 
-static void virt_set_aclint(Object *obj, bool value, Error **errp)
+static void comp20180_set_aclint(Object *obj, bool value, Error **errp)
 {
     RISCVCOMP20180State *s = RISCV_COMP20180_MACHINE(obj);
 
     s->have_aclint = value;
 }
 
-//bool virt_is_acpi_enabled(RISCVCOMP20180State *s)
+//bool comp20180_is_acpi_enabled(RISCVCOMP20180State *s)
 //{
 //    return s->acpi != ON_OFF_AUTO_OFF;
 //}
 
-static void virt_get_acpi(Object *obj, Visitor *v, const char *name,
+static void comp20180_get_acpi(Object *obj, Visitor *v, const char *name,
                           void *opaque, Error **errp)
 {
     RISCVCOMP20180State *s = RISCV_COMP20180_MACHINE(obj);
@@ -1656,7 +1660,7 @@ static void virt_get_acpi(Object *obj, Visitor *v, const char *name,
     visit_type_OnOffAuto(v, name, &acpi, errp);
 }
 
-static void virt_set_acpi(Object *obj, Visitor *v, const char *name,
+static void comp20180_set_acpi(Object *obj, Visitor *v, const char *name,
                           void *opaque, Error **errp)
 {
     RISCVCOMP20180State *s = RISCV_COMP20180_MACHINE(obj);
@@ -1664,7 +1668,7 @@ static void virt_set_acpi(Object *obj, Visitor *v, const char *name,
     visit_type_OnOffAuto(v, name, &s->acpi, errp);
 }
 
-static HotplugHandler *virt_machine_get_hotplug_handler(MachineState *machine,
+static HotplugHandler *comp20180_machine_get_hotplug_handler(MachineState *machine,
                                                         DeviceState *dev)
 {
     MachineClass *mc = MACHINE_GET_CLASS(machine);
@@ -1675,7 +1679,7 @@ static HotplugHandler *virt_machine_get_hotplug_handler(MachineState *machine,
     return NULL;
 }
 
-static void virt_machine_device_plug_cb(HotplugHandler *hotplug_dev,
+static void comp20180_machine_device_plug_cb(HotplugHandler *hotplug_dev,
                                         DeviceState *dev, Error **errp)
 {
     RISCVCOMP20180State *s = RISCV_COMP20180_MACHINE(hotplug_dev);
@@ -1690,14 +1694,14 @@ static void virt_machine_device_plug_cb(HotplugHandler *hotplug_dev,
     }
 }
 
-static void virt_machine_class_init(ObjectClass *oc, void *data)
+static void comp20180_machine_class_init(ObjectClass *oc, void *data)
 {
     char str[128];
     MachineClass *mc = MACHINE_CLASS(oc);
     HotplugHandlerClass *hc = HOTPLUG_HANDLER_CLASS(oc);
 
     mc->desc = "A modified RISC-V VirtIO board for use in UCD's Intro to OS module";
-    mc->init = virt_machine_init;
+    mc->init = comp20180_machine_init;
     mc->max_cpus = COMP20180_CPUS_MAX;
     mc->default_cpu_type = TYPE_RISCV_CPU_BASE;
     mc->pci_allow_0_address = true;
@@ -1707,50 +1711,50 @@ static void virt_machine_class_init(ObjectClass *oc, void *data)
     mc->numa_mem_supported = true;
     /* platform instead of architectural choice */
     mc->cpu_cluster_has_numa_boundary = true;
-    mc->default_ram_id = "riscv_virt_board.ram";
+    mc->default_ram_id = "riscv_comp20180_board.ram";
     assert(!mc->get_hotplug_handler);
-    mc->get_hotplug_handler = virt_machine_get_hotplug_handler;
+    mc->get_hotplug_handler = comp20180_machine_get_hotplug_handler;
 
-    hc->plug = virt_machine_device_plug_cb;
+    hc->plug = comp20180_machine_device_plug_cb;
 
-    machine_class_allow_dynamic_sysbus_dev(mc, TYPE_RAMFB_DEVICE);
-#ifdef CONFIG_TPM
-    machine_class_allow_dynamic_sysbus_dev(mc, TYPE_TPM_TIS_SYSBUS);
-#endif
+//    machine_class_allow_dynamic_sysbus_dev(mc, TYPE_RAMFB_DEVICE);
+//#ifdef CONFIG_TPM
+//    machine_class_allow_dynamic_sysbus_dev(mc, TYPE_TPM_TIS_SYSBUS);
+//#endif
 
 
-    object_class_property_add_bool(oc, "aclint", virt_get_aclint,
-                                   virt_set_aclint);
+    object_class_property_add_bool(oc, "aclint", comp20180_get_aclint,
+                                   comp20180_set_aclint);
     object_class_property_set_description(oc, "aclint",
                                           "(TCG only) Set on/off to "
                                           "enable/disable emulating "
                                           "ACLINT devices");
 
-    object_class_property_add_str(oc, "aia", virt_get_aia,
-                                  virt_set_aia);
+    object_class_property_add_str(oc, "aia", comp20180_get_aia,
+                                  comp20180_set_aia);
     object_class_property_set_description(oc, "aia",
                                           "Set type of AIA interrupt "
                                           "controller. Valid values are "
                                           "none, aplic, and aplic-imsic.");
 
     object_class_property_add_str(oc, "aia-guests",
-                                  virt_get_aia_guests,
-                                  virt_set_aia_guests);
+                                  comp20180_get_aia_guests,
+                                  comp20180_set_aia_guests);
     sprintf(str, "Set number of guest MMIO pages for AIA IMSIC. Valid value "
                  "should be between 0 and %d.", COMP20180_IRQCHIP_MAX_GUESTS);
     object_class_property_set_description(oc, "aia-guests", str);
     object_class_property_add(oc, "acpi", "OnOffAuto",
-                              virt_get_acpi, virt_set_acpi,
+                              comp20180_get_acpi, comp20180_set_acpi,
                               NULL, NULL);
     object_class_property_set_description(oc, "acpi",
                                           "Enable ACPI");
 }
 
-static const TypeInfo virt_machine_typeinfo = {
+static const TypeInfo comp20180_machine_typeinfo = {
     .name       = MACHINE_TYPE_NAME("comp20180"),
     .parent     = TYPE_MACHINE,
-    .class_init = virt_machine_class_init,
-    .instance_init = virt_machine_instance_init,
+    .class_init = comp20180_machine_class_init,
+    .instance_init = comp20180_machine_instance_init,
     .instance_size = sizeof(RISCVCOMP20180State),
     .interfaces = (InterfaceInfo[]) {
          { TYPE_HOTPLUG_HANDLER },
@@ -1758,9 +1762,9 @@ static const TypeInfo virt_machine_typeinfo = {
     },
 };
 
-static void virt_machine_init_register_types(void)
+static void comp20180_machine_init_register_types(void)
 {
-    type_register_static(&virt_machine_typeinfo);
+    type_register_static(&comp20180_machine_typeinfo);
 }
 
-type_init(virt_machine_init_register_types)
+type_init(comp20180_machine_init_register_types)
