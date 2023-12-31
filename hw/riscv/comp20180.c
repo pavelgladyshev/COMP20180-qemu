@@ -88,7 +88,6 @@ static const MemMapEntry comp20180_memmap[] = {
     [COMP20180_MROM] =         {     0x1000,        0xf000 },
     [COMP20180_TEST] =         {   0x100000,        0x1000 },
     [COMP20180_RTC] =          {   0x101000,        0x1000 },
-    [COMP20180_PRACTICE] =     {   0x200000,          0x10 },
     [COMP20180_CLINT] =        {  0x2000000,       0x10000 },
     [COMP20180_ACLINT_SSWI] =  {  0x2F00000,        0x4000 },
     [COMP20180_PCIE_PIO] =     {  0x3000000,       0x10000 },
@@ -105,6 +104,7 @@ static const MemMapEntry comp20180_memmap[] = {
     [COMP20180_PCIE_ECAM] =    { 0x30000000,    0x10000000 },
     [COMP20180_PCIE_MMIO] =    { 0x40000000,    0x40000000 },
     [COMP20180_DRAM] =         { 0x80000000,           0x0 },
+    [COMP20180_PRACTICE] =     { 0xffff0000,       0x10000 },
 };
 
 /* PCIe high mmio is fixed for RV32 */
@@ -1539,7 +1539,9 @@ static void comp20180_machine_init(MachineState *machine)
     sysbus_create_simple("goldfish_rtc", memmap[COMP20180_RTC].base,
         qdev_get_gpio_in(mmio_irqchip, RTC_IRQ));
 
-    create_practice_device("practice-device", memmap[COMP20180_PRACTICE].base, memmap[COMP20180_PRACTICE].size);
+//    create_practice_device("practice-device", memmap[COMP20180_PRACTICE].base, memmap[COMP20180_PRACTICE].size);
+    /* LED indicator */
+    sysbus_create_simple("jazz-led", 0xffff0000, NULL);
 
     for (i = 0; i < ARRAY_SIZE(s->flash); i++) {
         /* Map legacy -drive if=pflash to machine properties */
