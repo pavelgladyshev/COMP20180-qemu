@@ -104,7 +104,7 @@ static const MemMapEntry comp20180_memmap[] = {
     [COMP20180_PCIE_ECAM] =    { 0x30000000,    0x10000000 },
     [COMP20180_PCIE_MMIO] =    { 0x40000000,    0x40000000 },
     [COMP20180_DRAM] =         { 0x80000000,           0x0 },
-    [COMP20180_PRACTICE] =     { 0xffff0000,       0x10000 },
+    [COMP20180_RARS_TOOLS] =   { 0xffff0000,       0x10000 },
 };
 
 /* PCIe high mmio is fixed for RV32 */
@@ -1539,9 +1539,8 @@ static void comp20180_machine_init(MachineState *machine)
     sysbus_create_simple("goldfish_rtc", memmap[COMP20180_RTC].base,
         qdev_get_gpio_in(mmio_irqchip, RTC_IRQ));
 
-//    create_practice_device("practice-device", memmap[COMP20180_PRACTICE].base, memmap[COMP20180_PRACTICE].size);
-    /* LED indicator */
-    sysbus_create_simple("jazz-led", 0xffff0000, NULL);
+    /* Some of the RARS tools */
+    sysbus_create_simple("rars_tools", memmap[COMP20180_RARS_TOOLS].base, NULL);
 
     for (i = 0; i < ARRAY_SIZE(s->flash); i++) {
         /* Map legacy -drive if=pflash to machine properties */

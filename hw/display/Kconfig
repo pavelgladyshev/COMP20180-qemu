@@ -21,6 +21,9 @@ config G364FB
 config JAZZ_LED
     bool
 
+config RARS_TOOLS
+    bool
+
 config PL110
     bool
     select FRAMEBUFFER
