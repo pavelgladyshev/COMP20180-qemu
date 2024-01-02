@@ -46,7 +46,7 @@ config RISCV_VIRT
     select PLATFORM_BUS
     select ACPI
 
-    config RISCV_COMP20180
+config RISCV_COMP20180
     bool
     imply PCI_DEVICES
     imply VIRTIO_VGA
@@ -68,7 +68,6 @@ config RISCV_VIRT
     select FW_CFG_DMA
     select PLATFORM_BUS
     select ACPI
-
 
 config SHAKTI_C
     bool
