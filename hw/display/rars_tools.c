@@ -39,12 +39,28 @@ typedef enum {
 #define TYPE_RARS_TOOLS "rars_tools"
 OBJECT_DECLARE_SIMPLE_TYPE(RarsToolsState, RARS_TOOLS)
 
+typedef enum {
+    RARS_TOOLS_RGB_HEIGHT = 32,
+    RARS_TOOLS_RGB_WIDTH = 32,
+    RARS_TOOLS_RGB_ADDR = 0x4000,
+    RARS_TOOLS_RGB_PIXEL_SIZE = 8,
+} rgb_display_constants;
+
+typedef enum {
+    RARS_TOOLS_MONO_HEIGHT = 32,
+//    RARS_TOOLS_MONO_WIDTH = 32,  - assumed
+    RARS_TOOLS_MONO_ADDR = 0x8000,
+    RARS_TOOLS_MONO_PIXEL_SIZE = 8,
+} mono_display_constants;
+
 struct RarsToolsState {
     SysBusDevice parent_obj;
 
     MemoryRegion iomem;
     uint16_t segments_left;
     uint16_t segments_right;
+    uint32_t rgb_data[RARS_TOOLS_RGB_HEIGHT * RARS_TOOLS_RGB_WIDTH + 2];  // 2 words at the end create buffer zone for misaligned reads and writes
+    uint32_t mono_data[RARS_TOOLS_MONO_HEIGHT + 2];  // 2 words at the end create buffer zone for misaligned reads and writes. 
     QemuConsole *con;
     screen_state_t state;
 };
@@ -53,7 +69,7 @@ static uint64_t rars_tools_read(void *opaque, hwaddr addr,
                               unsigned int size)
 {
     RarsToolsState *s = opaque;
-    uint8_t val;
+    uint64_t val;
 
     switch(addr) {
         case 0x10: 
@@ -68,7 +84,45 @@ static uint64_t rars_tools_read(void *opaque, hwaddr addr,
         default:
             val = 0;
     }
-    
+
+    if ((addr >= RARS_TOOLS_RGB_ADDR) && (addr < RARS_TOOLS_RGB_HEIGHT*RARS_TOOLS_RGB_WIDTH*4+RARS_TOOLS_RGB_ADDR)){
+        int rgb_addr = addr - RARS_TOOLS_RGB_ADDR;
+        int index = rgb_addr / 4;  // index of RGB word in rgb_data
+        int biw = rgb_addr % 4;    // byte in word (0 - rightmost, assuming LE)
+        switch (size) {
+            case 1:
+                val = *(((uint8_t *)&(s->rgb_data[index]))+biw);
+                break;
+            case 2:
+                val = *((uint16_t *)(((uint8_t *)&(s->rgb_data[index]))+biw));
+                break;
+            case 4:
+                val = *((uint32_t *)(((uint8_t *)&(s->rgb_data[index]))+biw));
+                break;
+            case 8:
+                val = *((uint64_t *)(((uint8_t *)&(s->rgb_data[index]))+biw));
+                break;
+        }
+    } else if ((addr >= RARS_TOOLS_MONO_ADDR) && (addr < RARS_TOOLS_MONO_HEIGHT*4+RARS_TOOLS_MONO_ADDR)) {
+        int mono_addr = addr - RARS_TOOLS_MONO_ADDR;
+        int index = mono_addr / 4;  // index of monochrome display memory word in mono_data
+        int biw = mono_addr % 4;    // byte in word (0 - rightmost, assuming LE)
+        switch (size) {
+            case 1:
+                val = *(((uint8_t *)&(s->mono_data[index]))+biw);
+                break;
+            case 2:
+                val = *((uint16_t *)(((uint8_t *)&(s->mono_data[index]))+biw));
+                break;
+            case 4:
+                val = *((uint32_t *)(((uint8_t *)&(s->mono_data[index]))+biw));
+                break;
+            case 8:
+                val = *((uint64_t *)(((uint8_t *)&(s->mono_data[index]))+biw));
+                break;
+        }
+    }
+
     trace_rars_tools_read(addr, val);
     return val;
 }
@@ -94,6 +148,46 @@ static void rars_tools_write(void *opaque, hwaddr addr,
             s->segments_left = val & 0xff;
             break;
     }
+
+
+    if ((addr >= RARS_TOOLS_RGB_ADDR) && (addr < RARS_TOOLS_RGB_HEIGHT*RARS_TOOLS_RGB_WIDTH*4+RARS_TOOLS_RGB_ADDR)){
+        int rgb_addr = addr - RARS_TOOLS_RGB_ADDR;
+        int index = rgb_addr / 4;  // index of RGB word in rgb_data
+        int biw = rgb_addr % 4;    // byte in word (0 - rightmost, assuming LE)
+        switch (size) {
+            case 1:
+                *(((uint8_t *)&(s->rgb_data[index]))+biw) = (uint8_t)val;
+                break;
+            case 2:
+                *((uint16_t *)(((uint8_t *)&(s->rgb_data[index]))+biw)) = (uint16_t)val;
+                break;
+            case 4:
+                *((uint32_t *)(((uint8_t *)&(s->rgb_data[index]))+biw)) = (uint32_t)val;
+                break;
+            case 8:
+                *((uint64_t *)(((uint8_t *)&(s->rgb_data[index]))+biw)) = (uint64_t)val;
+                break;
+        }
+    } else if ((addr >= RARS_TOOLS_MONO_ADDR) && (addr < RARS_TOOLS_MONO_HEIGHT*4+RARS_TOOLS_MONO_ADDR)){
+        int mono_addr = addr - RARS_TOOLS_MONO_ADDR;
+        int index = mono_addr / 4;  // index of monochrome display memory word in mono_data
+        int biw = mono_addr % 4;    // byte in word (0 - rightmost, assuming LE)
+        switch (size) {
+            case 1:
+                *(((uint8_t *)&(s->mono_data[index]))+biw) = (uint8_t)val;
+                break;
+            case 2:
+                *((uint16_t *)(((uint8_t *)&(s->mono_data[index]))+biw)) = (uint16_t)val;
+                break;
+            case 4:
+                *((uint32_t *)(((uint8_t *)&(s->mono_data[index]))+biw)) = (uint32_t)val;
+                break;
+            case 8:
+                *((uint64_t *)(((uint8_t *)&(s->mono_data[index]))+biw)) = (uint64_t)val;
+                break;
+        }
+    } 
+
     s->state |= REDRAW_DISPLAYS;
 }
 
@@ -199,21 +293,255 @@ static void rars_tools_draw_7segment_display(DisplaySurface *surface, uint32_t c
         draw_horizontal_line(surface, y+72, x+50, x+50, color_led);
 }
 
+
+static void rars_tools_draw_rgb_display(DisplaySurface *surface, 
+                                        uint32_t rgb_data[], 
+                                        int display_top_left_x, 
+                                        int display_top_left_y) 
+{
+    int row,col;
+    uint32_t *next_rgb_pixel = rgb_data;
+
+    int bpp, stride;
+    uint8_t *d, *line_start, *next_pixel, *next_subpixel;
+    uint32_t next_pixel_color;
+    
+    // Get parameters of QEMU display surface.
+    bpp = (surface_bits_per_pixel(surface) + 7) >> 3;  // number of bytes per pixel on QEMU display
+    stride = surface_stride(surface);                  // number of bytes per line on QEMU display
+    d = surface_data(surface);                         // start of QEMU display frame buffer in memory
+
+    // copy pixel data from rgb_data[] array to specified area of QEMU display
+    // converting pixel data according to specs of QEMU display
+    line_start = d + stride * display_top_left_y + bpp * display_top_left_x;
+
+    for (row=0; row < RARS_TOOLS_RGB_HEIGHT; row++)
+    {
+        next_pixel = line_start;
+        for (col=0; col < RARS_TOOLS_RGB_WIDTH; col++)
+        {
+            // draw next pixel
+            switch (bpp) {
+            case 1:
+                next_pixel_color = rgb_to_pixel8(*(((uint8_t*)next_rgb_pixel)+2),
+                                                 *(((uint8_t*)next_rgb_pixel)+1),
+                                                 *(((uint8_t*)next_rgb_pixel)+0));
+                next_subpixel = next_pixel; 
+                next_pixel += RARS_TOOLS_RGB_PIXEL_SIZE * bpp;
+                for (int i = 0; i < RARS_TOOLS_RGB_PIXEL_SIZE; i++)
+                {
+                    for (int j = 0; j < RARS_TOOLS_RGB_PIXEL_SIZE; j++)
+                    {
+                        *((uint8_t *)next_subpixel) = next_pixel_color;
+                        next_subpixel += bpp; 
+                    }
+                    next_subpixel += stride - RARS_TOOLS_RGB_PIXEL_SIZE * bpp;
+                }
+                break;
+            case 2:
+                next_pixel_color = rgb_to_pixel16(*(((uint8_t*)next_rgb_pixel)+2),
+                                                  *(((uint8_t*)next_rgb_pixel)+1),
+                                                  *(((uint8_t*)next_rgb_pixel)+0));
+                next_subpixel = next_pixel; 
+                next_pixel += RARS_TOOLS_RGB_PIXEL_SIZE * bpp;
+                for (int i = 0; i < RARS_TOOLS_RGB_PIXEL_SIZE; i++)
+                {
+                    for (int j = 0; j < RARS_TOOLS_RGB_PIXEL_SIZE; j++)
+                    {
+                        *((uint16_t *)next_subpixel) = next_pixel_color;
+                        next_subpixel += bpp; 
+                    }
+                    next_subpixel += stride - RARS_TOOLS_RGB_PIXEL_SIZE * bpp;
+                }
+                break;
+            case 4:
+                next_pixel_color = rgb_to_pixel32(*(((uint8_t*)next_rgb_pixel)+2),
+                                                  *(((uint8_t*)next_rgb_pixel)+1),
+                                                  *(((uint8_t*)next_rgb_pixel)+0));
+                next_subpixel = next_pixel; 
+                next_pixel += RARS_TOOLS_RGB_PIXEL_SIZE * bpp;
+                for (int i = 0; i < RARS_TOOLS_RGB_PIXEL_SIZE; i++)
+                {
+                    for (int j = 0; j < RARS_TOOLS_RGB_PIXEL_SIZE; j++)
+                    {
+                        *((uint32_t *)next_subpixel) = next_pixel_color;
+                        next_subpixel += bpp; 
+                    }
+                    next_subpixel += stride - RARS_TOOLS_RGB_PIXEL_SIZE * bpp;
+                }
+                break;
+            }
+            next_rgb_pixel++;
+        }
+        line_start += stride * RARS_TOOLS_RGB_PIXEL_SIZE;
+    }
+}
+
+static void rars_tools_draw_mono_display(DisplaySurface *surface, 
+                                        uint32_t *mono_data,        // pointer to the start of array of 32 words 
+                                        int display_top_left_x, 
+                                        int display_top_left_y) 
+{
+    int row,col;
+
+    int bpp, stride;
+    uint8_t *d, *line_start, *next_pixel, *next_subpixel;
+    uint32_t color_on, color_off, next_mono_line, next_pixel_color;
+    
+    // Get parameters of QEMU display surface.
+    bpp = (surface_bits_per_pixel(surface) + 7) >> 3;  // number of bytes per pixel on QEMU display
+    stride = surface_stride(surface);                  // number of bytes per line on QEMU display
+    d = surface_data(surface);                         // start of QEMU display frame buffer in memory
+
+    // set on and off colours of monochrome pixels according to bits per pixel settings of the surface
+    switch (surface_bits_per_pixel(surface)) {
+        case 8:
+            color_on = rgb_to_pixel8(0x00, 0xff, 0x00);
+            color_off = rgb_to_pixel8(0x00, 0x00, 0x00);
+            break;
+        case 15:
+            color_on = rgb_to_pixel15(0x00, 0xff, 0x00);
+            color_off = rgb_to_pixel15(0x00, 0x00, 0x00);
+            break;
+        case 16:
+            color_on = rgb_to_pixel16(0x00, 0xff, 0x00);
+            color_off = rgb_to_pixel16(0x00, 0x00, 0x00);
+            break;
+        case 24:
+            color_on = rgb_to_pixel24(0x00, 0xff, 0x00);
+            color_off = rgb_to_pixel24(0x00, 0x00, 0x00);
+            break;
+        case 32:
+            color_on = rgb_to_pixel32(0x00, 0xff, 0x00);
+            color_off = rgb_to_pixel32(0x00, 0x00, 0x00);
+            break;
+        default:
+            return;
+    }
+
+    // copy pixel data from mono_data[] array to specified area of QEMU display
+    // converting pixel data according to specs of QEMU display
+    
+    line_start = d + stride * display_top_left_y + bpp * display_top_left_x;
+
+    next_mono_line = *mono_data++;
+
+    for (row=0; row < RARS_TOOLS_RGB_HEIGHT; row++)
+    {
+        next_pixel = line_start;
+        for (col=0; col < RARS_TOOLS_RGB_WIDTH; col++)
+        {
+            // get next pixel color by checking the value of the corresponding bit 
+            // in the bitmap display line
+
+            next_pixel_color = (0x80000000 & next_mono_line) ? color_on : color_off;
+            next_mono_line <<=1;
+
+            // draw next RARS Monochrome display pixel as a small square 
+            // RARS_TOOLS_MONO_PIXEL_SIZE wide and tall (in QEMU display pixels).
+            switch (bpp) {
+            case 1:
+                next_subpixel = next_pixel; 
+                next_pixel += RARS_TOOLS_MONO_PIXEL_SIZE * bpp;
+                for (int i = 0; i < RARS_TOOLS_MONO_PIXEL_SIZE; i++)
+                {
+                    for (int j = 0; j < RARS_TOOLS_MONO_PIXEL_SIZE; j++)
+                    {
+                        *((uint8_t *)next_subpixel) = next_pixel_color;
+                        next_subpixel += bpp; 
+                    }
+                    next_subpixel += stride - RARS_TOOLS_MONO_PIXEL_SIZE * bpp;
+                }
+                break;
+            case 2:
+                next_subpixel = next_pixel; 
+                next_pixel += RARS_TOOLS_MONO_PIXEL_SIZE * bpp;
+                for (int i = 0; i < RARS_TOOLS_MONO_PIXEL_SIZE; i++)
+                {
+                    for (int j = 0; j < RARS_TOOLS_MONO_PIXEL_SIZE; j++)
+                    {
+                        *((uint16_t *)next_subpixel) = next_pixel_color;
+                        next_subpixel += bpp; 
+                    }
+                    next_subpixel += stride - RARS_TOOLS_MONO_PIXEL_SIZE * bpp;
+                }
+                break;
+            case 4:
+                next_subpixel = next_pixel; 
+                next_pixel += RARS_TOOLS_MONO_PIXEL_SIZE * bpp;
+                for (int i = 0; i < RARS_TOOLS_MONO_PIXEL_SIZE; i++)
+                {
+                    for (int j = 0; j < RARS_TOOLS_MONO_PIXEL_SIZE; j++)
+                    {
+                        *((uint32_t *)next_subpixel) = next_pixel_color;
+                        next_subpixel += bpp; 
+                    }
+                    next_subpixel += stride - RARS_TOOLS_MONO_PIXEL_SIZE * bpp;
+                }
+                break;
+            }
+        }
+        line_start += stride * RARS_TOOLS_MONO_PIXEL_SIZE;
+        next_mono_line = *mono_data++;
+    }
+}
+
+
 static void rars_tools_update_display(void *opaque)
 {
     RarsToolsState *s = opaque;
     DisplaySurface *surface = qemu_console_surface(s->con);
     uint8_t *d1;
-    uint32_t color_segment, color_led;
-    int y, bpp;
+    uint32_t color_segment, color_led, color_bg;
+    int y, x, bpp;
 
     if (s->state & REDRAW_BACKGROUND) {
         /* clear screen */
         bpp = (surface_bits_per_pixel(surface) + 7) >> 3;
+
+        /* set background colour accosting to bits per pixel settings of the surface*/
+        switch (surface_bits_per_pixel(surface)) {
+        case 8:
+            color_bg = rgb_to_pixel8(0x20, 0x20, 0x20);
+            break;
+        case 15:
+            color_bg = rgb_to_pixel15(0x20, 0x20, 0x20);
+            break;
+        case 16:
+            color_bg = rgb_to_pixel16(0x20, 0x20, 0x20);
+            break;
+        case 24:
+            color_bg = rgb_to_pixel24(0x20, 0x20, 0x20);
+            break;
+        case 32:
+            color_bg = rgb_to_pixel32(0x20, 0x20, 0x20);
+            break;
+        default:
+            return;
+        }
+
         d1 = surface_data(surface);
-        for (y = 0; y < surface_height(surface); y++) {
-            memset(d1, 0x00, surface_width(surface) * bpp);
-            d1 += surface_stride(surface);
+        switch (bpp) {
+            case 1:
+                for (y = 0; y < surface_height(surface); y++) {
+                    memset(d1, color_bg, surface_width(surface) * bpp);
+                    d1 += surface_stride(surface);
+                }
+                break;
+            case 2:
+                for (y = 0; y < surface_height(surface); y++) {
+                    for (x = 0; x < surface_width(surface); x++, d1 += bpp) {
+                        *((uint16_t *)d1) = (uint16_t) color_bg;
+                    }
+                }
+                break;
+            case 4:
+                for (y = 0; y < surface_height(surface); y++) {
+                    for (x = 0; x < surface_width(surface); x++, d1 += bpp) {
+                        *((uint32_t *)d1) = (uint32_t) color_bg;
+                    }
+                }
+                break;
         }
     }
 
@@ -221,31 +549,33 @@ static void rars_tools_update_display(void *opaque)
         /* set colors according to bpp */
         switch (surface_bits_per_pixel(surface)) {
         case 8:
-            color_segment = rgb_to_pixel8(0xaa, 0xaa, 0xaa);
-            color_led = rgb_to_pixel8(0x00, 0xff, 0x00);
+            color_segment = rgb_to_pixel8(0xff, 0x00, 0x00);
+            color_led = rgb_to_pixel8(0xff, 0x00, 0x00);
             break;
         case 15:
-            color_segment = rgb_to_pixel15(0xaa, 0xaa, 0xaa);
-            color_led = rgb_to_pixel15(0x00, 0xff, 0x00);
+            color_segment = rgb_to_pixel15(0xff, 0x00, 0x00);
+            color_led = rgb_to_pixel15(0xff, 0x00, 0x00);
             break;
         case 16:
-            color_segment = rgb_to_pixel16(0xaa, 0xaa, 0xaa);
-            color_led = rgb_to_pixel16(0x00, 0xff, 0x00);
+            color_segment = rgb_to_pixel16(0xff, 0x00, 0x00);
+            color_led = rgb_to_pixel16(0xff, 0x00, 0x00);
             break;
         case 24:
-            color_segment = rgb_to_pixel24(0xaa, 0xaa, 0xaa);
-            color_led = rgb_to_pixel24(0x00, 0xff, 0x00);
+            color_segment = rgb_to_pixel24(0xff, 0x00, 0x00);
+            color_led = rgb_to_pixel24(0xff, 0x00, 0x00);
             break;
         case 32:
-            color_segment = rgb_to_pixel32(0xaa, 0xaa, 0xaa);
-            color_led = rgb_to_pixel32(0x00, 0xff, 0x00);
+            color_segment = rgb_to_pixel32(0xff, 0x00, 0x00);
+            color_led = rgb_to_pixel32(0xff, 0x00, 0x00);
             break;
         default:
             return;
         }
 
-        rars_tools_draw_7segment_display(surface, color_segment, color_led, s->segments_left, 0, 0);
-        rars_tools_draw_7segment_display(surface, color_segment, color_led, s->segments_right, 60, 0);
+        rars_tools_draw_7segment_display(surface, color_segment, color_led, s->segments_left, 30, 120);
+        rars_tools_draw_7segment_display(surface, color_segment, color_led, s->segments_right, 90, 120);
+        rars_tools_draw_rgb_display(surface,s->rgb_data, 180, 40);
+        rars_tools_draw_mono_display(surface,s->mono_data, 476, 40);
     }
 
     s->state = REDRAW_NONE;
@@ -328,8 +658,11 @@ static void rars_tools_reset(DeviceState *d)
 
     s->segments_left = 0;
     s->segments_right = 0;
+    memset(s->rgb_data,0,RARS_TOOLS_RGB_HEIGHT*RARS_TOOLS_RGB_WIDTH*sizeof(uint32_t));
+    memset(s->mono_data,0,RARS_TOOLS_MONO_HEIGHT*sizeof(uint32_t));
+
     s->state = REDRAW_DISPLAYS | REDRAW_BACKGROUND;
-    qemu_console_resize(s->con, 120, 100);
+    qemu_console_resize(s->con, 772, 340);
 }
 
 static void rars_tools_class_init(ObjectClass *klass, void *data)
